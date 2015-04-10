@@ -1,0 +1,20 @@
+{
+  "name": "cyphy-components",
+  "version": "0.0.1",
+  "homepage": "https://github.com/webgme/webgme-cyphy",
+  "moduleType": [
+    "amd"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "isis-ui-components": "*",
+    "angular-moment": "~0.9.0"
+  }
+}

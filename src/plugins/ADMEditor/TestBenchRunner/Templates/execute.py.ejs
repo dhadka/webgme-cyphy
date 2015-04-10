@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import shutil
+import errno
 import zipfile
 import logging
 import subprocess
@@ -37,6 +38,10 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 logger.addHandler(ch_err)
 
+def close_log():
+    fh.close()
+import atexit
+atexit.register(close_log)
 
 ## Obtain the root directory for the META-tools.
 # Get the running meta-python path.
@@ -62,7 +67,7 @@ win32com.client.gencache.GetClassForCLSID = lambda x: None
 def call_subprocess_with_logging(command, my_env=None):
     """
     Calls the command, if error occurred logging is made of all non-empty returns.
-    Reraises the exception putting the formatet message in returncode
+    Reraises the exception putting the formatted message in returncode
 
     :param command: the command to be executed
     :param my_env: dictionary of environment-variables, None -> uses the default windows
@@ -104,7 +109,8 @@ def parse_xme_and_save_to_mga(file_name):
     logger.debug('Xme info :')
     logger.debug('  paradigm     : {0}'.format(paradigm))
     logger.debug('  paradigm_v   : {0}'.format(paradigm_v))
-    logger.debug('  paradigm_guid: {0}'.format(paradigm_guid))
+    import uuid
+    logger.debug('  paradigm_guid: {0}'.format(str(uuid.UUID(bytes_le=paradigm_guid))))
     logger.debug('  basename     : {0}'.format(basename))
     logger.debug('  version      : {0}'.format(version))
     if paradigm != 'CyPhyML':
@@ -170,20 +176,28 @@ def import_design(mga_path, adm_file, testbench_config):
             raise RuntimeError('Given test-bench path "' + testbench_config['path'] + '" does not exist in project!')
         try:
             logger.debug('Path returned MgaObject of type: {0}'.format(testbench_mga.MetaBase.Name))
-            if not testbench_mga.MetaBase.Name == 'TestBench':
-                raise NotImplementedError('Only CyPhy TestBench supported!')
+            #if not testbench_mga.MetaBase.Name == 'TestBench':
+            #    raise NotImplementedError('Only CyPhy TestBench supported!')
             testbench_id = testbench_mga.ID
             logger.debug('Found test-bench "{0}".'.format(testbench_mga.Name))
             logger.debug('Test-bench ID : {0}.'.format(testbench_id))
-            tlsut_mga = [o for o in testbench_mga.GetChildrenOfKind('TopLevelSystemUnderTest')][0]
-            logger.debug('TopLevelSystem under test {0} refers to :'.format(tlsut_mga.Name))
-            logger.debug(' "{0}" ({1})'.format(tlsut_mga.Referred.Name, tlsut_mga.Referred.MetaBase.Name))
+            tlsut_mga = [o for o in testbench_mga.GetChildrenOfKind('TopLevelSystemUnderTest')]
+            if tlsut_mga:
+                tlsut_mga = tlsut_mga[0]
+            else:
+                tlsut_role = testbench_mga.Meta.GetRoleByNameDisp('TopLevelSystemUnderTest')
+                tlsut_mga = testbench_mga.CreateChildObject(tlsut_role)
+            logger.debug('TopLevelSystem under test {0} name :'.format(tlsut_mga.Name))
+            if tlsut_mga.Referred:
+                logger.debug(' "{0}" ({1})'.format(tlsut_mga.Referred.Name, tlsut_mga.Referred.MetaBase.Name))
+            else:
+                logger.debug(' [null reference]')
         except pywintypes.com_error as err:
             logger.error(err.message)
             raise RuntimeError('Given test-bench not found or setup correctly.')
         ## Import the design.
         logger.debug('Calling CyPhyDesignImporter.ImportDesign.')
-        design_mga = design_importer.ImportDesignToDesignSpace(project, adm_file)
+        design_mga = design_importer.ImportDesignToDesignSpaceIfApplicable(project, adm_file)
         design_id = design_mga.ID
         logger.debug('Design imported:')
         logger.debug(' Name : {0}'.format(design_mga.Name))
@@ -195,10 +209,13 @@ def import_design(mga_path, adm_file, testbench_config):
             logger.info('Creating DesignSpaceHelper')
             desert = win32com.client.Dispatch('MGA.Interpreter.DesignSpaceHelper')
             desert.Initialize(project)
-            logger.info('Calling InvokeEx')
-            selectedObjs = win32com.client.Dispatch('Mga.MgaFCOs')
-            desert.InvokeEx(project, design_mga, selectedObjs, 128)
-            for cc in design_mga.GetChildrenOfKind('Configurations'):
+            logger.info('Calling ApplyConstraintsAndGenerateCWCs')
+            # selectedObjs = win32com.client.Dispatch('Mga.MgaFCOs')
+            desert.ApplyConstraintsAndGenerateCWCs(project, design_mga, False)
+            configurations = design_mga.GetChildrenOfKind('Configurations')
+            if configurations.Count == 0:
+                logger.warning('No Configurations found')
+            for cc in configurations:
                 logger.info('Found Configurations "{0}" inside design.'.format(cc.Name))
                 cfg_mgas = cc.GetChildrenOfKind('CWC')
                 for cfg_mga in cfg_mgas:
@@ -307,7 +324,7 @@ def run_execution_jobs():
             os.chdir(root_dir)
     if failed_jobs > 0:
         with open('_FAILED.txt', 'ab+') as f_out:
-            f_out.write(str(failed_jobs) + ' of ' + str(nbr_of_jobs) +' jobs failed! See logs/execute.log.')
+            f_out.write(str(failed_jobs) + ' of ' + str(nbr_of_jobs) +' jobs failed! See log/execute.log.')
 
 
 def move_dashboard_files(new_dir):
@@ -350,6 +367,11 @@ def move_dashboard_files(new_dir):
 
 
 if __name__ == '__main__':
+    try:
+        shutil.rmtree('results')
+    except OSError as e:
+        if e.errno != errno.ENOENT:
+            raise
     with zipfile.ZipFile('tbAsset.zip') as zippy:
         zippy.extractall('.')
     try:
@@ -357,14 +379,14 @@ if __name__ == '__main__':
     except IndexError:
         logger.error('Could not find an adm at {0}'.format(os.getcwd()))
         with open('_FAILED.txt', 'ab+') as f_out:
-            f_out.write('Execution failed! See logs/execute.log.')
+            f_out.write('Execution failed! See log/execute.log.')
         sys.exit(1)
     try:
         xme_path = [f for f in os.listdir('.') if f.endswith('.xme')][0]
     except IndexError:
         logger.error('Could not find an adm or xme file at {0}'.format(os.getcwd()))
         with open('_FAILED.txt', 'ab+') as f_out:
-            f_out.write('Execution failed! See logs/execute.log.')
+            f_out.write('Execution failed! See log/execute.log.')
         sys.exit(1)
     with open('testbench_config.json', 'r') as f_in:
         test_bench_config = json.load(f_in)
@@ -378,7 +400,7 @@ if __name__ == '__main__':
     else:
         logger.error('Components could not be imported!')
         with open('_FAILED.txt', 'ab+') as f_out:
-            f_out.write('Execution failed! See logs/execute.log.')
+            f_out.write('Execution failed! See log/execute.log.')
         sys.exit(1)
     try:
         test_bench_id, cfg_ids = import_design(mga_file, adm_path, test_bench_config)

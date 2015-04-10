@@ -3,16 +3,18 @@
  *
  * Author: Zsolt Lattmann
  *
- * Server side configuration file for all tests.
+ * Configuration for server-side mocha tests.
  */
 
 var PATH = require('path');
 
 var CONFIG = require('./config.json');
+CONFIG.mongodatabase = 'CyPhyFunctional';
 var webgme = require('webgme');
-var requirejs = require('requirejs');
-webGMEGlobal.setConfig(CONFIG);
-var requirejsBase = webGMEGlobal.baseDir;
+var requirejs = global.WebGMEGlobal.requirejs;
+CONFIG.loglevel = 0;
+WebGMEGlobal.setConfig(CONFIG);
+var requirejsBase = WebGMEGlobal.baseDir;
 
 // specifies all test specific requirejs paths for server side tests
 // read it from the config file
@@ -26,6 +28,11 @@ if (CONFIG.test_paths) {
         paths:paths
     });
 }
+requirejs(['logManager'], function (LogManager) {
+    LogManager.setLogLevel(0);
+});
+
+exports.requirejs = requirejs;
 
 if (require.main === module) {
 

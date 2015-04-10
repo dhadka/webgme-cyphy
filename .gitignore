@@ -11,8 +11,21 @@ blob-local-storage
 executor-temp
 jobList.nedb
 workerList.nedb
+labelJobs.json
 
 # cyphy project temp files and directories
-mongodatabase
+mongodatabase/*
 !mongodatabase/Readme.md
 
+coverage
+dump
+*.stackdump
+v8.log
+npm-shrinkwrap.json
+npm-debug.log
+
+cyphy_functional_server_1.log
+cyphy_functional_server_2.log
+cyphy_functional_server_forever.log
+
+public
